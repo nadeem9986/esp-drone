@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Drone Full 3D Flight Simulator & Telemetry Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    }
+    body {
+      background-color: #0b0f19;
+      color: #e2e8f0;
+      overflow: hidden;
+      display: flex;
+      height: 100vh;
+    }
+    #sidebar {
+      width: 420px;
+      background: #111827;
+      border-right: 1px solid #1f2937;
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      gap: 16px;
+      z-index: 10;
+      box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+      overflow-y: auto;
+    }
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #3b82f6, #60a5fa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .header p {
+      font-size: 13px;
+      color: #94a3b8;
+    }
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 20px;
+      background: #1e293b;
+      color: #94a3b8;
+      width: fit-content;
+    }
+    .status-badge .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ef4444;
+    }
+    .status-badge.active .dot {
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+    }
+    .flight-mode-box {
+      background: linear-gradient(135deg, #1e293b, #0f172a);
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 14px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .flight-mode-box .lbl {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #94a3b8;
+    }
+    .flight-mode-box .val {
+      font-size: 16px;
+      font-weight: 800;
+      color: #3b82f6;
+    }
+    .btn-reset-yaw {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .btn-reset-yaw:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .card .label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+    .card .value {
+      font-size: 20px;
+      font-weight: 700;
+      color: #f8fafc;
+      font-family: monospace;
+    }
+    .card .sub {
+      font-size: 10px;
+      color: #60a5fa;
+      font-weight: 600;
+    }
+    .log-box {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 11px;
+      font-family: monospace;
+      color: #38bdf8;
+      max-height: 70px;
+      overflow-y: auto;
+    }
+    .sensor-raw-box {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 14px;
+      font-size: 12px;
+      font-family: monospace;
+      color: #cbd5e1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .raw-line {
+      display: flex;
+      justify-content: space-between;
+    }
+    #viewport {
+      flex: 1;
+      height: 100vh;
+      position: relative;
+    }
+    .overlay-info {
+      position: absolute;
+      top: 24px;
+      right: 24px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 16px 24px;
+      display: flex;
+      gap: 24px;
+      color: white;
+    }
+    .overlay-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .overlay-item .val {
+      font-size: 20px;
+      font-weight: 700;
+      color: #60a5fa;
+      font-family: monospace;
+    }
+    .overlay-item .lbl {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="sidebar">
+    <div class="header">
+      <h1>Drone 3D Flight Simulator</h1>
+      <p>Zero-Drift Sensor Fusion: Pitch, Roll & 360° Yaw</p>
+    </div>
+
+    <div id="statusBadge" class="status-badge">
+      <span class="dot"></span>
+      <span id="statusText">Connecting...</span>
+    </div>
+
+    <button id="resetYawBtn" class="btn-reset-yaw">
+      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      Center Drone Heading (Zero Yaw)
+    </button>
+
+    <div class="flight-mode-box">
+      <div>
+        <div class="lbl">Current Drone Motion</div>
+        <div id="motionMode" class="val">STABLE LEVEL</div>
+      </div>
+      <div style="font-size: 24px;">🚁</div>
+    </div>
+
+    <div class="log-box" id="consoleLog">
+      > Connecting to ESP32 stream...
+    </div>
+
+    <!-- 3D Orientation Attitude Display -->
+    <div class="metric-grid">
+      <div class="card">
+        <span class="label">PITCH</span>
+        <div><span id="pitchVal" class="value">0.0</span><span style="color:#94a3b8;">°</span></div>
+        <span id="pitchDir" class="sub">LEVEL</span>
+      </div>
+      <div class="card">
+        <span class="label">ROLL</span>
+        <div><span id="rollVal" class="value">0.0</span><span style="color:#94a3b8;">°</span></div>
+        <span id="rollDir" class="sub">LEVEL</span>
+      </div>
+      <div class="card">
+        <span class="label">YAW HEADING</span>
+        <div><span id="yawVal" class="value">0.0</span><span style="color:#94a3b8;">°</span></div>
+        <span id="yawDir" class="sub">FORWARD</span>
+      </div>
+    </div>
+
+    <!-- Gyro Rates & Temp -->
+    <div class="metric-grid">
+      <div class="card">
+        <span class="label">Yaw Rate (Gz)</span>
+        <div><span id="yawRateVal" class="value">0.0</span><span style="color:#94a3b8;">°/s</span></div>
+      </div>
+      <div class="card">
+        <span class="label">Vertical (Az)</span>
+        <div><span id="azShortVal" class="value">1.00</span><span style="color:#94a3b8;">g</span></div>
+      </div>
+      <div class="card">
+        <span class="label">Temp</span>
+        <div><span id="tempVal" class="value">--</span><span style="color:#94a3b8;">°C</span></div>
+      </div>
+    </div>
+
+    <!-- Raw 6-DOF Sensors -->
+    <div class="sensor-raw-box">
+      <div style="color: #60a5fa; font-weight: 700; margin-bottom: 2px;">6-DOF TELEMETRY (ACCEL & GYRO)</div>
+      <div class="raw-line"><span>Ax (Forward/Bwd):</span><span id="axVal">0.00 g</span></div>
+      <div class="raw-line"><span>Ay (Left/Right):</span><span id="ayVal">0.00 g</span></div>
+      <div class="raw-line"><span>Az (Up/Down):</span><span id="azVal">1.00 g</span></div>
+      <hr style="border-color: #1e293b; margin: 4px 0;">
+      <div class="raw-line"><span>Gx (Roll Rate):</span><span id="gxVal">0.0 °/s</span></div>
+      <div class="raw-line"><span>Gy (Pitch Rate):</span><span id="gyVal">0.0 °/s</span></div>
+      <div class="raw-line"><span>Gz (Yaw Rate):</span><span id="gzVal">0.0 °/s</span></div>
+    </div>
+  </div>
+
+  <div id="viewport">
+    <div class="overlay-info">
+      <div class="overlay-item">
+        <span class="lbl">Filter Mode</span>
+        <span class="val" style="color: #10b981;">Zero-Drift 3D Fusion</span>
+      </div>
+      <div class="overlay-item">
+        <span class="lbl">Axes Enabled</span>
+        <span class="val" style="color: #f59e0b;">Pitch, Roll, Yaw</span>
+      </div>
+      <div class="overlay-item">
+        <span class="lbl">Stream</span>
+        <span class="val" style="color: #3b82f6;">ws://localhost:8080</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const container = document.getElementById('viewport');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b0f19);
+
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+    camera.position.set(0, 4, 8);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(5, 10, 7);
+    scene.add(dirLight);
+
+    const gridHelper = new THREE.GridHelper(20, 20, 0x3b82f6, 0x1e293b);
+    gridHelper.position.y = -2;
+    scene.add(gridHelper);
+
+    // 3D Quad-X Drone Model
+    const drone = new THREE.Group();
+
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8, roughness: 0.2 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.25, 1.2), bodyMat);
+    drone.add(body);
+
+    const noseMat = new THREE.MeshStandardMaterial({ color: 0xef4444 });
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5, 4), noseMat);
+    nose.rotation.x = -Math.PI / 2;
+    nose.position.z = -0.8;
+    drone.add(nose);
+
+    const armMat = new THREE.MeshStandardMaterial({ color: 0x475569 });
+    const motorMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6 });
+    const propMat = new THREE.MeshStandardMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.7 });
+
+    const armPositions = [
+      [1.2, 0, 1.2],
+      [-1.2, 0, 1.2],
+      [1.2, 0, -1.2],
+      [-1.2, 0, -1.2]
+    ];
+    const propellers = [];
+
+    armPositions.forEach(pos => {
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 2.8), armMat);
+      arm.rotation.y = (pos[0] * pos[2] > 0) ? Math.PI / 4 : -Math.PI / 4;
+      drone.add(arm);
+
+      const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.3, 16), motorMat);
+      motor.position.set(pos[0], 0.15, pos[2]);
+      drone.add(motor);
+
+      const prop = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.02, 0.15), propMat);
+      prop.position.set(pos[0], 0.32, pos[2]);
+      drone.add(prop);
+      propellers.push(prop);
+    });
+
+    scene.add(drone);
+
+    let targetPitch = 0.0, targetRoll = 0.0, targetYaw = 0.0;
+    let currentPitch = 0.0, currentRoll = 0.0, currentYaw = 0.0;
+    let yawOffset = 0.0;
+
+    document.getElementById('resetYawBtn').addEventListener('click', () => {
+      yawOffset = targetYaw;
+      consoleLog.innerText = '> Heading centered to 0° (Zero Yaw)';
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      currentPitch = THREE.MathUtils.lerp(currentPitch, targetPitch, 0.25);
+      currentRoll  = THREE.MathUtils.lerp(currentRoll, targetRoll, 0.25);
+      currentYaw   = THREE.MathUtils.lerp(currentYaw, (targetYaw - yawOffset), 0.25);
+
+      drone.rotation.x = THREE.MathUtils.degToRad(currentPitch);
+      drone.rotation.z = THREE.MathUtils.degToRad(currentRoll);
+      drone.rotation.y = THREE.MathUtils.degToRad(-currentYaw);
+
+      propellers.forEach((p, idx) => {
+        p.rotation.y += (idx % 2 === 0 ? 0.3 : -0.3);
+      });
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+
+    const consoleLog = document.getElementById('consoleLog');
+
+    function connectWebSocket() {
+      const ws = new WebSocket('ws://localhost:8080');
+
+      ws.onopen = () => {
+        document.getElementById('statusBadge').classList.add('active');
+        document.getElementById('statusText').innerText = 'Telemetry Connected (ws://8080)';
+        consoleLog.innerText = '> Connected to Zero-Drift Drone stream!';
+      };
+
+      ws.onmessage = (event) => {
+        parseTelemetry(event.data);
+      };
+
+      ws.onclose = () => {
+        document.getElementById('statusBadge').classList.remove('active');
+        document.getElementById('statusText').innerText = 'Bridge Offline - Retrying...';
+        consoleLog.innerText = '> Bridge disconnected. Retrying...';
+        setTimeout(connectWebSocket, 2000);
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    function parseTelemetry(line) {
+      try {
+        const data = JSON.parse(line);
+
+        if (data.status_log) {
+          consoleLog.innerText = '> ' + data.status_log;
+          if (data.status_log.includes('WARNING')) {
+            document.getElementById('motionMode').innerText = 'MPU6050 NOT DETECTED';
+            document.getElementById('motionMode').style.color = '#ef4444';
+          }
+          return;
+        }
+
+        document.getElementById('motionMode').style.color = '#3b82f6';
+
+        if (data.pitch !== undefined) {
+          targetPitch = data.pitch;
+          document.getElementById('pitchVal').innerText = data.pitch.toFixed(1);
+          document.getElementById('pitchDir').innerText = data.pitch > 10 ? 'FORWARD' : (data.pitch < -10 ? 'BACKWARD' : 'LEVEL');
+        }
+
+        if (data.roll !== undefined) {
+          targetRoll = data.roll;
+          document.getElementById('rollVal').innerText = data.roll.toFixed(1);
+          document.getElementById('rollDir').innerText = data.roll > 10 ? 'RIGHT' : (data.roll < -10 ? 'LEFT' : 'LEVEL');
+        }
+
+        if (data.yaw !== undefined) {
+          targetYaw = data.yaw;
+          const displayYaw = (data.yaw - yawOffset);
+          document.getElementById('yawVal').innerText = displayYaw.toFixed(1);
+          document.getElementById('yawDir').innerText = Math.abs(displayYaw) < 15 ? 'FORWARD' : (displayYaw > 0 ? 'TURN RIGHT' : 'TURN LEFT');
+        }
+
+        if (data.motion !== undefined) {
+          document.getElementById('motionMode').innerText = data.motion;
+        }
+
+        if (data.yawRate !== undefined) document.getElementById('yawRateVal').innerText = data.yawRate.toFixed(1);
+        if (data.temp !== undefined) document.getElementById('tempVal').innerText = data.temp.toFixed(1);
+        if (data.ax !== undefined) document.getElementById('axVal').innerText = data.ax.toFixed(2) + ' g';
+        if (data.ay !== undefined) document.getElementById('ayVal').innerText = data.ay.toFixed(2) + ' g';
+        if (data.az !== undefined) {
+          document.getElementById('azVal').innerText = data.az.toFixed(2) + ' g';
+          document.getElementById('azShortVal').innerText = data.az.toFixed(2);
+        }
+        if (data.gx !== undefined) document.getElementById('gxVal').innerText = data.gx.toFixed(1) + ' °/s';
+        if (data.gy !== undefined) document.getElementById('gyVal').innerText = data.gy.toFixed(1) + ' °/s';
+        if (data.gz !== undefined) document.getElementById('gzVal').innerText = data.gz.toFixed(1) + ' °/s';
+
+      } catch (e) {}
+    }
+
+    connectWebSocket();
+  </script>
+</body>
+</html>

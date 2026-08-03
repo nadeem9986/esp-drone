@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RC Drift Car MPU-6050 Gyro Assist Visualizer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    }
+    body {
+      background-color: #0b0f19;
+      color: #e2e8f0;
+      overflow: hidden;
+      display: flex;
+      height: 100vh;
+    }
+    #sidebar {
+      width: 400px;
+      background: #111827;
+      border-right: 1px solid #1f2937;
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      gap: 20px;
+      z-index: 10;
+      box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+    }
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .header p {
+      font-size: 13px;
+      color: #94a3b8;
+    }
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 12px;
+      border-radius: 20px;
+      background: #1e293b;
+      color: #94a3b8;
+      width: fit-content;
+    }
+    .status-badge .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ef4444;
+    }
+    .status-badge.active .dot {
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+    }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .card .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+    .card .value {
+      font-size: 26px;
+      font-weight: 700;
+      color: #f8fafc;
+      font-family: monospace;
+    }
+    .card .unit {
+      font-size: 14px;
+      color: #64748b;
+    }
+    .counter-steer-box {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .steer-bar-container {
+      height: 16px;
+      background: #1e293b;
+      border-radius: 8px;
+      overflow: hidden;
+      position: relative;
+    }
+    .steer-bar-center {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #94a3b8;
+    }
+    .steer-bar-fill {
+      height: 100%;
+      width: 50%;
+      background: #3b82f6;
+      transition: width 0.05s ease;
+    }
+    #viewport {
+      flex: 1;
+      height: 100vh;
+      position: relative;
+    }
+    .overlay-info {
+      position: absolute;
+      top: 24px;
+      right: 24px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 16px 24px;
+      display: flex;
+      gap: 24px;
+      color: white;
+    }
+    .overlay-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .overlay-item .val {
+      font-size: 22px;
+      font-weight: 700;
+      color: #f59e0b;
+      font-family: monospace;
+    }
+    .overlay-item .lbl {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="sidebar">
+    <div class="header">
+      <h1>RC Drift Car Gyro Assist</h1>
+      <p>MPU-6050 Auto Counter-Steering Controller</p>
+    </div>
+
+    <div id="statusBadge" class="status-badge">
+      <span class="dot"></span>
+      <span id="statusText">Connecting...</span>
+    </div>
+
+    <div class="metric-grid">
+      <div class="card">
+        <span class="label">Yaw Rate</span>
+        <div><span id="yawRateVal" class="value">0.0</span><span class="unit">°/s</span></div>
+      </div>
+      <div class="card">
+        <span class="label">Lateral Slide</span>
+        <div><span id="latGVal" class="value">0.00</span><span class="unit">g</span></div>
+      </div>
+    </div>
+
+    <div class="counter-steer-box">
+      <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 700;">
+        <span>Front Wheels Steering Servo</span>
+        <span id="servoDegVal" style="color: #3b82f6;">90° (Center)</span>
+      </div>
+      <div class="steer-bar-container">
+        <div class="steer-bar-center"></div>
+        <div id="steerBarFill" class="steer-bar-fill"></div>
+      </div>
+      <div style="display: flex; justify-content: space-between; font-size: 11px; color: #64748b;">
+        <span>Full Left (30°)</span>
+        <span>Center (90°)</span>
+        <span>Full Right (150°)</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="label">Gyro Drift Assist Mode</span>
+      <div style="font-size: 16px; font-weight: 700; color: #10b981; margin-top: 4px;">
+        AUTO COUNTER-STEER ACTIVE
+      </div>
+      <p style="font-size: 12px; color: #94a3b8; margin-top: 6px; line-height: 1.4;">
+        When the car tail slides out, MPU-6050 senses the yaw rotation speed and turns front wheels into the drift to prevent spin-outs!
+      </p>
+    </div>
+  </div>
+
+  <div id="viewport">
+    <div class="overlay-info">
+      <div class="overlay-item">
+        <span class="lbl">Vehicle Type</span>
+        <span class="val">1/10 RC Drift Car</span>
+      </div>
+      <div class="overlay-item">
+        <span class="lbl">Gyro Mode</span>
+        <span class="val" style="color: #10b981;">Z-Axis Counter-Steer</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const container = document.getElementById('viewport');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b0f19);
+
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+    camera.position.set(0, 5, 9);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(5, 10, 7);
+    scene.add(dirLight);
+
+    const gridHelper = new THREE.GridHelper(30, 30, 0xf59e0b, 0x1e293b);
+    gridHelper.position.y = -0.5;
+    scene.add(gridHelper);
+
+    // Create 3D RC Drift Car Model
+    const carGroup = new THREE.Group();
+
+    // Body chassis
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xef4444, metalness: 0.6, roughness: 0.3 });
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.6, 4.2), bodyMat);
+    chassis.position.y = 0.5;
+    carGroup.add(chassis);
+
+    // Roof cabin
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 2.0), new THREE.MeshStandardMaterial({ color: 0x111827 }));
+    roof.position.set(0, 0.95, -0.2);
+    carGroup.add(roof);
+
+    // Wheels
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.8 });
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.8 });
+
+    function createWheel() {
+      const g = new THREE.Group();
+      const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 24), wheelMat);
+      tire.rotation.z = Math.PI / 2;
+      g.add(tire);
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.32, 12), rimMat);
+      rim.rotation.z = Math.PI / 2;
+      g.add(rim);
+      return g;
+    }
+
+    const frontLeftWheel = createWheel();
+    frontLeftWheel.position.set(1.1, 0.4, 1.4);
+    carGroup.add(frontLeftWheel);
+
+    const frontRightWheel = createWheel();
+    frontRightWheel.position.set(-1.1, 0.4, 1.4);
+    carGroup.add(frontRightWheel);
+
+    const rearLeftWheel = createWheel();
+    rearLeftWheel.position.set(1.1, 0.4, -1.4);
+    carGroup.add(rearLeftWheel);
+
+    const rearRightWheel = createWheel();
+    rearRightWheel.position.set(-1.1, 0.4, -1.4);
+    carGroup.add(rearRightWheel);
+
+    scene.add(carGroup);
+
+    // Animation & LERP Smoothing variables
+    let targetYawRate = 0.0;
+    let targetServo = 90;
+    let currentYawAngle = 0.0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Rotate front wheels according to counter-steer servo output
+      const steerRad = THREE.MathUtils.degToRad((targetServo - 90));
+      frontLeftWheel.rotation.y = steerRad;
+      frontRightWheel.rotation.y = steerRad;
+
+      // Rotate car chassis based on yaw rate
+      currentYawAngle += (targetYawRate * 0.015);
+      carGroup.rotation.y = THREE.MathUtils.degToRad(currentYawAngle);
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+
+    function connectWebSocket() {
+      const ws = new WebSocket('ws://localhost:8080');
+
+      ws.onopen = () => {
+        document.getElementById('statusBadge').classList.add('active');
+        document.getElementById('statusText').innerText = 'Connected (Bridge ws://8080)';
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.yawRate !== undefined) {
+            targetYawRate = data.yawRate;
+            document.getElementById('yawRateVal').innerText = data.yawRate.toFixed(1);
+          }
+          if (data.latG !== undefined) {
+            document.getElementById('latGVal').innerText = data.latG.toFixed(2);
+          }
+          if (data.servo !== undefined) {
+            targetServo = data.servo;
+            document.getElementById('servoDegVal').innerText = `${data.servo}°`;
+            const fillPct = ((data.servo - 30) / 120) * 100;
+            document.getElementById('steerBarFill').style.width = `${fillPct}%`;
+          }
+        } catch (e) {}
+      };
+
+      ws.onclose = () => {
+        document.getElementById('statusBadge').classList.remove('active');
+        document.getElementById('statusText').innerText = 'Bridge Offline - Retrying...';
+        setTimeout(connectWebSocket, 2000);
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    connectWebSocket();
+  </script>
+</body>
+</html>
